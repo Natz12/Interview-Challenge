@@ -69,3 +69,88 @@ def index(request):
 	'data': json.dumps(generate_graph(), cls=DjangoJSONEncoder)
 	}
 	return render(request, 'portfolios/index.html', context);
+
+from django.utils.dateparse import parse_date
+def get_prices(start_date, end_date):
+  prices = HistoricPrice.objects
+
+  if start_date is None:
+    start_date = prices.earliest('date').date
+  else:
+    start_date = parse_date(start_date)
+
+  if end_date is None:
+    end_date = prices.latest('date').date
+  else:
+    end_date = parse_date(end_date)
+
+  if end_date > date.today():
+    raise Exception("Cannot be in future")
+  if start_date > end_date:
+    raise Exception("Start must be less than end")
+ 
+  if prices_available_locally(start_date, end_date):
+    return get_prices_locally(start_date, end_date)
+  else:
+    return get_prices_remotely(start_date, end_date)
+
+def prices_available_locally(start_date, end_date):
+  from datetime import date
+  prices = HistoricPrice.objects
+
+  if prices.earliest('date').date > start_date:
+    return False
+  elif prices.latest('date').date < end_date:
+    return False
+  else:
+    return HistoricPrice.objects.filter(date__range=(start_date, end_date)).exists()
+
+def get_prices_remotely(start_date, end_date):
+  pass
+  
+def get_prices_locally(start_date, end_date):
+  import csv
+  prices = HistoricPrice.objects
+  if start_date and end_date:
+    prices = prices.filter(date__range=(start_date, end_date))
+  elif start_date:
+    prices = prices.filter(date__gte=start_date)
+  elif end_date:
+    prices = prices.filter(date__lte=end_date)
+  else:
+    prices = prices.all()
+  return prices
+
+def generate_csv(prices, fields, labels):
+  dates = prices.values_list('date', flat=True)
+  vals = ['%.2f;%.2f;%.2f'%t for t in prices.values_list(*fields)]
+
+  response = HttpResponse(content_type='text/csv')
+  writer = csv.writer(response)
+  writer.writerow(labels)
+  writer.writerows(zip(dates, vals))
+  return response
+
+def info(request):
+  start_date = request.GET.get('start')
+  end_date = request.GET.get('end')
+  prices = get_prices(start_date, end_date)
+  fields = ['low', 'close', 'high']
+  labels = ['date', 'YHOO']
+  return generate_csv(prices, fields, labels)
+
+def needs_remote(request):
+  from django.http import JsonResponse
+  start_date = request.GET.get('start')
+  end_date = request.GET.get('end')
+  if start_date is not None:
+    start_date = parse_date(start_date)
+  if end_date is not None:
+    end_date = parse_date(end_date)
+
+  data = {
+    'locally': prices_available_locally(start_date, end_date),
+    'earliest': str(HistoricPrice.objects.earliest('date').date),
+    'latest': str(HistoricPrice.objects.latest('date').date),
+  }
+  return JsonResponse(data)

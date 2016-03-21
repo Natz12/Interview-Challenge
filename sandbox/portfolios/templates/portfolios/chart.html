@@ -1,0 +1,19 @@
+<html>
+  <head>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/dygraph/1.1.1/dygraph-combined.js"></script>
+  </head>
+  <body>
+    <div id="chart" style="width:500px; height:300px;"></div>
+    <script>
+      var options = {
+        legend: 'always',
+        showRangeSelector: true,
+        customBars: true,
+      }
+      var g = new Dygraph(
+        document.getElementById('chart'),
+        '/portfolios/info/', options
+      );
+    </script>
+  </body>
+</html>
