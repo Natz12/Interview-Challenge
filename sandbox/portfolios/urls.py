@@ -1,10 +1,10 @@
 from django.conf.urls import url
 from django.views.generic import TemplateView
-from . import views
+from .views import *
 
 urlpatterns = [
-	url(r'^info/', views.info, name='info'),
-	url(r'^needs_remote/', views.needs_remote),
-	url(r'^chart/', TemplateView.as_view(template_name="portfolios/chart.html"), name='chart'),
-	url(r'^$', views.index, name='index'),
+	url(r'^info/', info, name='info'),
+	url(r'^needs_remote/', needs_remote),
+	url(r'^compare/', StockCompareView.as_view(), name='chart'),
+	url(r'^$', index, name='index'),
 ]

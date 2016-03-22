@@ -154,3 +154,14 @@ def needs_remote(request):
     'latest': str(HistoricPrice.objects.latest('date').date),
   }
   return JsonResponse(data)
+
+from django.views.generic.base import TemplateView
+
+class StockCompareView(TemplateView):
+  
+  template_name = "portfolios/compare.html"
+  
+  def get_context_data(self, **kwargs):
+    context = super(StockCompareView, self).get_context_data(**kwargs)
+    context['symbols'] = Investment.objects.values_list('symbol', flat=True)
+    return context
