@@ -1,17 +1,20 @@
 from django.contrib import admin
-from simple_history.admin import SimpleHistoryAdmin
-from .models import Investment, Portfolio, Allocation, HistoricPrice
+from .models import Investment, Allocation, HistoricPrice
 
 class AllocationInline(admin.TabularInline):
 	model = Allocation
 	extra = 1
+	fk_name = 'asset'
 
 class InvestmentAdmin(admin.ModelAdmin):
+	list_display = ('name', 'symbol', 'market', 'asset_class')
 	inlines = (AllocationInline, )
 
-class PortfolioAdmin(SimpleHistoryAdmin):
-	inlines = (AllocationInline,)
+class HistoricPriceAdmin(admin.ModelAdmin):
+	list_display = ('date', 'price', 'investment_name')
 
-admin.site.register(Portfolio, PortfolioAdmin)
+	def investment_name(self, obj):
+		return obj.investment.name
+
 admin.site.register(Investment, InvestmentAdmin)
-admin.site.register(HistoricPrice)
+admin.site.register(HistoricPrice, HistoricPriceAdmin)
