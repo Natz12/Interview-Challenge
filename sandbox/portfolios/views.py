@@ -1,167 +1,54 @@
-from django.shortcuts import render
-from django.http import HttpResponse
-import json
-import io
 import csv
+from django.views.generic import ListView
+from portfolios.models import Investment, Allocation, HistoricPrice
 import urllib2
-from urllib import urlencode
-from datetime import date
-from .models import *
-from django.core.serializers.json import DjangoJSONEncoder
+import urllib
+from django.http import JsonResponse
+from portfolios.forms import DateFilterForm
+from django.core import serializers
+import datetime
+from django.db.models import Q
+import ast
 
-def financialSourceURL(symbol, start_date, end_date):
-	params = {
-		's': symbol,
-		'a': '%02d' % start_date.day,
-		'b': '%02d' % start_date.month,
-		'c': start_date.year,
-		'd': '%02d' % end_date.day,
-		'e': '%02d' % end_date.month,
-		'f': end_date.year,
-		'g': 'd',
-		'ignore': '.csv',
-	}
-	return 'http://real-chart.finance.yahoo.com/table.csv?' + urlencode(params)
+class InvestmentList(ListView):
+  model = Investment
 
-def get_historic_data(symbol, start_date, end_date):
-	historic_data = (HistoricPrice.objects
-	.values_list('date', 'close')
-	.filter(date__range=(start_date, end_date), 
-		investment__symbol__iexact=symbol))
-	if(historic_data.exists()):
-		return zip(*historic_data)
-	else:
-		response = urllib2.urlopen(financialSourceURL(symbol, start_date, end_date))
-		csvstring = response.read()
-		reader = csv.DictReader(io.StringIO(csvstring.decode('utf-8')), delimiter=',')
-		investment = Investment.objects.get(symbol=symbol)
-		dates = []
-		closing = []
-		#prices = []
-		for row in reader:
-			dates.append(row['Date'])
-			closing.append(row['Close'])
-			price = HistoricPrice(
-				date = row['Date'],
-				open = row['Open'],
-				high = row['High'],
-				low = row['Low'],
-				close = row['Close'],
-				adjusted_close = row['Adj Close'],
-				volume = row['Volume'],
-				investment = investment)
-			price.save()
-		#HistoricPrice.bulk_create(prices)
-		return (dates, closing)
+  def get(self, request, *args, **kwargs):
+    form = DateFilterForm(request.GET)
+    if not form.is_valid():
+      json_response = form.errors.as_json()
+    else:
+      start = form.cleaned_data['start']
+      finish = form.cleaned_data['finish']
+      symbol = form.cleaned_data['symbol']
 
-def generate_graph(symbol="YHOO", 
-	start_date=date(2016,1,1), 
-	end_date=date(2016,2,3)):
-	(dates, closing) = get_historic_data(symbol, start_date, end_date)
-	return [{
-		'x': dates,
-		'y': closing,
-		'type': 'scatter'
-	}]
+      delta = datetime.timedelta(days=3)
+      start_plus = start + delta
+      start_minus = start - delta
+      finish_plus = finish + delta
+      finish_minus = finish - delta
 
-def index(request):
-	context = {
-	'data': json.dumps(generate_graph(), cls=DjangoJSONEncoder)
-	}
-	return render(request, 'portfolios/index.html', context);
+      investment = Investment.objects.get(symbol__iexact=symbol)
+      if investment:
+        prices = HistoricPrice.objects.filter(investment=investment)
+        if prices.filter(Q(date__range=[start_minus, start_plus])|Q(date__range=[finish_minus, finish_plus])).exists():
+          objects = prices.filter(date__range=[start, finish])
+          json_response = map(ast.literal_eval, objects.values_list('price', flat=True))
+        else:        
+          url = 'http://real-chart.finance.yahoo.com/table.csv?%s' % urllib.urlencode({
+            'a':start.month, 'b':start.day,'c':start.year,
+            'd':finish.month, 'e':finish.day, 'f':finish.year, 
+            's':symbol, 'g': 'd', 'ignore':'.csv' })
+          print("Fetching from %s" % url)
+          remote_response = urllib2.urlopen(url)
+          cr = csv.DictReader(remote_response)
+          json_response = [row for row in cr]
+          HistoricPrice.objects.bulk_create([HistoricPrice(date=price['Date'], price=price, investment=investment) for price in json_response])
 
-from django.utils.dateparse import parse_date
-def get_prices(start_date, end_date):
-  prices = HistoricPrice.objects
+        return JsonResponse(json_response, safe=False)
 
-  if start_date is None:
-    start_date = prices.earliest('date').date
-  else:
-    start_date = parse_date(start_date)
+class AllocationList(ListView):
+  model = Allocation
 
-  if end_date is None:
-    end_date = prices.latest('date').date
-  else:
-    end_date = parse_date(end_date)
-
-  if end_date > date.today():
-    raise Exception("Cannot be in future")
-  if start_date > end_date:
-    raise Exception("Start must be less than end")
- 
-  if prices_available_locally(start_date, end_date):
-    return get_prices_locally(start_date, end_date)
-  else:
-    return get_prices_remotely(start_date, end_date)
-
-def prices_available_locally(start_date, end_date):
-  from datetime import date
-  prices = HistoricPrice.objects
-
-  if prices.earliest('date').date > start_date:
-    return False
-  elif prices.latest('date').date < end_date:
-    return False
-  else:
-    return HistoricPrice.objects.filter(date__range=(start_date, end_date)).exists()
-
-def get_prices_remotely(start_date, end_date):
-  pass
-  
-def get_prices_locally(start_date, end_date):
-  import csv
-  prices = HistoricPrice.objects
-  if start_date and end_date:
-    prices = prices.filter(date__range=(start_date, end_date))
-  elif start_date:
-    prices = prices.filter(date__gte=start_date)
-  elif end_date:
-    prices = prices.filter(date__lte=end_date)
-  else:
-    prices = prices.all()
-  return prices
-
-def generate_csv(prices, fields, labels):
-  dates = prices.values_list('date', flat=True)
-  vals = ['%.2f;%.2f;%.2f'%t for t in prices.values_list(*fields)]
-
-  response = HttpResponse(content_type='text/csv')
-  writer = csv.writer(response)
-  writer.writerow(labels)
-  writer.writerows(zip(dates, vals))
-  return response
-
-def info(request):
-  start_date = request.GET.get('start')
-  end_date = request.GET.get('end')
-  prices = get_prices(start_date, end_date)
-  fields = ['low', 'close', 'high']
-  labels = ['date', 'YHOO']
-  return generate_csv(prices, fields, labels)
-
-def needs_remote(request):
-  from django.http import JsonResponse
-  start_date = request.GET.get('start')
-  end_date = request.GET.get('end')
-  if start_date is not None:
-    start_date = parse_date(start_date)
-  if end_date is not None:
-    end_date = parse_date(end_date)
-
-  data = {
-    'locally': prices_available_locally(start_date, end_date),
-    'earliest': str(HistoricPrice.objects.earliest('date').date),
-    'latest': str(HistoricPrice.objects.latest('date').date),
-  }
-  return JsonResponse(data)
-
-from django.views.generic.base import TemplateView
-
-class StockCompareView(TemplateView):
-  
-  template_name = "portfolios/compare.html"
-  
-  def get_context_data(self, **kwargs):
-    context = super(StockCompareView, self).get_context_data(**kwargs)
-    context['symbols'] = Investment.objects.values_list('symbol', flat=True)
-    return context
+class HistoricPriceList(ListView):
+  model = HistoricPrice
