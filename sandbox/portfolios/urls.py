@@ -1,6 +1,6 @@
 from django.conf.urls import url
 from django.views.generic import TemplateView
-from .views import *
+from portfolios.views import *
 
 urlpatterns = [
 	#url(r'^info/', info, name='info'),

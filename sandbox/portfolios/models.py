@@ -22,5 +22,8 @@ class Allocation(models.Model):
 
 class HistoricPrice(models.Model):
 	date = models.DateField()
-	price = models.CharField(max_length=50)
+	price = models.CharField(max_length=200)
 	investment = models.ForeignKey(Investment)
+
+	class Meta:
+		unique_together = (('investment', 'date'),)
