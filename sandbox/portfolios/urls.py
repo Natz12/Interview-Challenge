@@ -10,4 +10,5 @@ urlpatterns = [
 	url(r'^investments/$', InvestmentList.as_view()),
 	url(r'^allocations/$', AllocationList.as_view()),
 	url(r'^prices/$', HistoricPriceList.as_view()),
+	url(r'^search/(?P<query>\w+)/$', InvestmentSearchList.as_view()),
 ]
